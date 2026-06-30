@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { Threat } from './entities/threat.entity';
 import { SeverityAnalyzer, TriageVerdict } from './domain/severity-analyzer';
 import { Severity, isAtLeast } from './domain/severity.enum';
@@ -88,7 +88,17 @@ export class ThreatTriageService {
       detectedAt: new Date(event.detectedAt),
     });
 
-    threat = await this.threats.save(threat);
+    try {
+      threat = await this.threats.save(threat);
+    } catch (error) {
+      // Lost a race against a concurrent delivery of the same threatId; the
+      // unique constraint protected us — treat it as an idempotent replay.
+      const duplicate = await this.handleDuplicate(error, event.threatId);
+      if (duplicate) {
+        return duplicate;
+      }
+      throw error;
+    }
 
     this.logger.log(
       `Triaged threat ${event.threatId} from ${event.sourceIp}: ` +
@@ -104,6 +114,47 @@ export class ThreatTriageService {
     }
 
     return { threat, verdict, blockCommandIssued, deduplicated: false };
+  }
+
+  /**
+   * If a save failed because of the `threatId` unique constraint, re-reads the
+   * winning record and returns it as a deduplicated result. Returns null for
+   * any other failure so the caller can rethrow.
+   */
+  private async handleDuplicate(
+    error: unknown,
+    threatId: string,
+  ): Promise<TriageResult | null> {
+    const isUniqueViolation =
+      error instanceof QueryFailedError &&
+      (error as QueryFailedError & { code?: string }).code === '23505';
+    if (!isUniqueViolation) {
+      return null;
+    }
+
+    const winner = await this.threats.findOne({ where: { threatId } });
+    if (!winner) {
+      return null;
+    }
+
+    this.logger.debug(
+      `Concurrent duplicate for threat ${threatId} resolved idempotently.`,
+    );
+    return {
+      threat: winner,
+      verdict: {
+        score: winner.score,
+        severity: winner.severity,
+        breakdown: (winner.scoreBreakdown as TriageVerdict['breakdown']) ?? {
+          cvss: 0,
+          category: 0,
+          confidence: 0,
+          indicatorBoost: 0,
+        },
+      },
+      blockCommandIssued: winner.blockCommandIssued,
+      deduplicated: true,
+    };
   }
 
   private async emitBlockCommand(

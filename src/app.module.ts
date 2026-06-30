@@ -1,17 +1,21 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_FILTER } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import configuration, { DatabaseConfig } from './config/configuration';
+import { validateEnv } from './config/env.validation';
 import { MessagingModule } from './messaging/messaging.module';
 import { ThreatsModule } from './threats/threats.module';
 import { HealthModule } from './health/health.module';
 import { Threat } from './threats/entities/threat.entity';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       load: [configuration],
+      validate: validateEnv,
       cache: true,
     }),
     TypeOrmModule.forRootAsync({
@@ -34,6 +38,12 @@ import { Threat } from './threats/entities/threat.entity';
     MessagingModule,
     ThreatsModule,
     HealthModule,
+  ],
+  providers: [
+    {
+      provide: APP_FILTER,
+      useClass: AllExceptionsFilter,
+    },
   ],
 })
 export class AppModule {}

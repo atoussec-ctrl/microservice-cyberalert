@@ -1,4 +1,14 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import {
+  Controller,
+  DefaultValuePipe,
+  Get,
+  NotFoundException,
+  Param,
+  ParseEnumPipe,
+  ParseIntPipe,
+  ParseUUIDPipe,
+  Query,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Threat } from './entities/threat.entity';
@@ -18,11 +28,12 @@ export class ThreatsController {
 
   @Get()
   async list(
-    @Query('severity') severity?: Severity,
+    @Query('severity', new ParseEnumPipe(Severity, { optional: true }))
+    severity?: Severity,
     @Query('sourceIp') sourceIp?: string,
-    @Query('limit') limit = '50',
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit = 50,
   ): Promise<Threat[]> {
-    const take = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    const take = Math.min(Math.max(limit, 1), 200);
     return this.threats.find({
       where: {
         ...(severity ? { severity } : {}),
@@ -36,7 +47,11 @@ export class ThreatsController {
   @Get(':threatId')
   async findOne(
     @Param('threatId', new ParseUUIDPipe()) threatId: string,
-  ): Promise<Threat | null> {
-    return this.threats.findOne({ where: { threatId } });
+  ): Promise<Threat> {
+    const threat = await this.threats.findOne({ where: { threatId } });
+    if (!threat) {
+      throw new NotFoundException(`Threat ${threatId} not found`);
+    }
+    return threat;
   }
 }
