@@ -50,7 +50,8 @@ fail fast into the DLQ.
 
 ```
 src/
-├── config/            # typed configuration loader
+├── common/            # cross-cutting: global exception filter, error envelope
+├── config/            # typed configuration loader + startup env validation
 ├── messaging/         # AWS SNS/SQS clients, publisher, SNS-envelope unwrapping
 ├── threats/
 │   ├── domain/        # pure logic: severity analyzer, enums, event contracts
@@ -90,18 +91,56 @@ curl 'http://localhost:3000/threats?severity=CRITICAL'
 curl 'http://localhost:3000/health'
 ```
 
+## Error handling
+
+A platform-agnostic catch-all filter (`src/common/filters/all-exceptions.filter.ts`,
+registered via `APP_FILTER`) turns every failure into a consistent envelope:
+
+```json
+{
+  "statusCode": 404,
+  "error": "Not Found",
+  "message": "Threat <id> not found",
+  "timestamp": "2026-06-30T19:24:50.813Z",
+  "path": "/threats/<id>"
+}
+```
+
+- Validation errors (`class-validator`, `ParseUUIDPipe`, `ParseEnumPipe`, `ParseIntPipe`) → **400** with the failing field message(s).
+- Missing resource → **404** (`NotFoundException`).
+- TypeORM `EntityNotFoundError` → **404**; unique-constraint `QueryFailedError` → **409**.
+- Unexpected errors → **500**, with internal details **redacted in production** (`NODE_ENV=production`) and full stack traces logged server-side.
+
+Configuration is validated at boot (`src/config/env.validation.ts`): malformed
+numeric vars and out-of-range SQS settings fail fast, and the critical
+DB/messaging vars are required in production — the service never starts in a
+silently-broken state.
+
 ## Testing
 
-The domain and messaging logic are covered by unit tests (Jest), TDD-style:
+Unit tests (no external services required):
 
 ```bash
-npm test          # run the suite
+npm test          # run the unit suite
 npm run test:cov  # with coverage
 ```
 
+End-to-end tests run the full app (HTTP endpoints, global exception filter, the
+SQS worker, triage and persistence) against a **real PostgreSQL** instance, with
+the AWS SDK clients replaced by in-memory fakes:
+
+```bash
+# Requires a reachable Postgres; defaults to localhost:5432 / db `threat_intelligence_test`.
+# Override via DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, DB_NAME.
+createdb threat_intelligence_test   # once
+npm run test:e2e
+```
+
 Covered behaviours include: severity scoring & thresholds, SNS-envelope
-unwrapping, idempotent triage, CRITICAL → `block-ip-command` emission, and the
-consumer's DLQ-safe delete semantics (only delete on success).
+unwrapping, idempotent triage (including concurrent-duplicate races), CRITICAL →
+`block-ip-command` emission, the consumer's DLQ-safe delete semantics (delete
+only on success), the standardized error envelope, and every HTTP endpoint
+(health, list with filters, fetch-by-id, 400/404 paths).
 
 ## Production notes
 
