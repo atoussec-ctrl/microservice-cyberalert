@@ -4,12 +4,18 @@ import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Severity } from '../domain/severity.enum';
 
 export class ListThreatsQueryDto {
-  @ApiPropertyOptional({ enum: Severity, description: 'Filter by triage severity bucket' })
+  @ApiPropertyOptional({
+    enum: Severity,
+    description: 'Filter by triage severity bucket',
+  })
   @IsOptional()
   @IsEnum(Severity)
   severity?: Severity;
 
-  @ApiPropertyOptional({ example: '198.51.100.23', description: 'Filter by attacker source IP' })
+  @ApiPropertyOptional({
+    example: '198.51.100.23',
+    description: 'Filter by attacker source IP',
+  })
   @IsOptional()
   @IsString()
   sourceIp?: string;

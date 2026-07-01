@@ -41,9 +41,15 @@ export class ThreatsController {
 
   @Get(':threatId')
   @ApiOperation({ summary: 'Get a threat by business id' })
-  @ApiParam({ name: 'threatId', format: 'uuid', description: 'Threat id from the original event' })
+  @ApiParam({
+    name: 'threatId',
+    format: 'uuid',
+    description: 'Threat id from the original event',
+  })
   @ApiOkResponse({ type: ThreatResponseDto })
-  @ApiNotFoundResponse({ description: 'Threat not found (returns null body with 200)' })
+  @ApiNotFoundResponse({
+    description: 'Threat not found (returns null body with 200)',
+  })
   async findOne(
     @Param('threatId', new ParseUUIDPipe()) threatId: string,
   ): Promise<Threat | null> {

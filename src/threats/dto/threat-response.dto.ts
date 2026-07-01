@@ -6,7 +6,10 @@ export class ThreatResponseDto {
   @ApiProperty({ format: 'uuid', description: 'Internal persistence id' })
   id!: string;
 
-  @ApiProperty({ format: 'uuid', description: 'Business threat id from the incoming event' })
+  @ApiProperty({
+    format: 'uuid',
+    description: 'Business threat id from the incoming event',
+  })
   threatId!: string;
 
   @ApiProperty({ example: 'scanner-01' })
@@ -41,7 +44,10 @@ export class ThreatResponseDto {
   })
   scoreBreakdown!: Record<string, number> | null;
 
-  @ApiProperty({ example: true, description: 'Whether a block-ip-command was emitted' })
+  @ApiProperty({
+    example: true,
+    description: 'Whether a block-ip-command was emitted',
+  })
   blockCommandIssued!: boolean;
 
   @ApiProperty({ format: 'date-time' })
