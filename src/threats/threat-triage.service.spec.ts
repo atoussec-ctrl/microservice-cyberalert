@@ -125,4 +125,43 @@ describe('ThreatTriageService', () => {
 
     await expect(service.triage(criticalEvent())).rejects.toThrow('db down');
   });
+
+  it('falls back to a zeroed breakdown when a deduplicated threat has no stored breakdown', async () => {
+    const existing: Partial<Threat> = {
+      threatId: '22222222-2222-2222-2222-222222222222',
+      severity: Severity.HIGH,
+      score: 70,
+      blockCommandIssued: false,
+      scoreBreakdown: null,
+    };
+    repo.findOne.mockResolvedValue(existing as Threat);
+
+    const result = await service.triage(criticalEvent());
+
+    expect(result.deduplicated).toBe(true);
+    expect(result.verdict.breakdown).toEqual({
+      cvss: 0,
+      category: 0,
+      confidence: 0,
+      indicatorBoost: 0,
+    });
+  });
+
+  it('defaults optional event fields to null/empty when persisting a new threat', async () => {
+    repo.findOne.mockResolvedValue(null);
+
+    const result = await service.triage(
+      criticalEvent({
+        cvssScore: undefined,
+        confidence: undefined,
+        indicators: undefined,
+        signature: undefined,
+      }),
+    );
+
+    expect(result.threat.cvssScore).toBeNull();
+    expect(result.threat.confidence).toBeNull();
+    expect(result.threat.indicators).toEqual([]);
+    expect(result.threat.signature).toBeNull();
+  });
 });
