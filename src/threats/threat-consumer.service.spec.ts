@@ -122,4 +122,137 @@ describe('ThreatConsumerService', () => {
     });
     expect(ok).toBe(false);
   });
+
+  describe('lifecycle', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('onApplicationBootstrap does not start polling when disabled', () => {
+      consumer.onApplicationBootstrap();
+      expect(sqs.send).not.toHaveBeenCalled();
+    });
+
+    it('onApplicationBootstrap does not start when the queue URL is not configured', () => {
+      const configService = {
+        getOrThrow: () => ({
+          ...messagingConfig,
+          pollingEnabled: true,
+          threatAnalysisQueueUrl: '',
+        }),
+      } as never;
+      const disconnected = new ThreatConsumerService(
+        sqs as never,
+        triage as never,
+        configService,
+      );
+
+      disconnected.onApplicationBootstrap();
+
+      expect(sqs.send).not.toHaveBeenCalled();
+    });
+
+    it('onApplicationBootstrap starts the consumer when polling is enabled and configured', async () => {
+      const configService = {
+        getOrThrow: () => ({ ...messagingConfig, pollingEnabled: true }),
+      } as never;
+      const enabled = new ThreatConsumerService(
+        sqs as never,
+        triage as never,
+        configService,
+      );
+      sqs.send.mockImplementationOnce(async () => {
+        (enabled as unknown as { running: boolean }).running = false;
+        return {};
+      });
+
+      enabled.onApplicationBootstrap();
+      await (enabled as unknown as { loopPromise: Promise<void> | null })
+        .loopPromise;
+
+      expect(sqs.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('start() begins polling and exits the loop once running flips false', async () => {
+      sqs.send.mockResolvedValueOnce({}).mockImplementationOnce(async () => {
+        (consumer as unknown as { running: boolean }).running = false;
+        return {};
+      });
+
+      consumer.start();
+      await (consumer as unknown as { loopPromise: Promise<void> | null })
+        .loopPromise;
+
+      expect(sqs.send).toHaveBeenCalledTimes(2);
+      expect(triage.triage).not.toHaveBeenCalled();
+    });
+
+    it('start() is a no-op when already running', async () => {
+      let resolveFirstPoll!: (value: unknown) => void;
+      const firstPoll = new Promise((resolve) => {
+        resolveFirstPoll = resolve;
+      });
+      sqs.send.mockImplementationOnce(() => firstPoll);
+
+      consumer.start();
+      consumer.start();
+
+      expect(sqs.send).toHaveBeenCalledTimes(1);
+
+      resolveFirstPoll({});
+      await consumer.stop();
+    });
+
+    it('stop() is a no-op when not already running', async () => {
+      await consumer.stop();
+      expect(sqs.send).not.toHaveBeenCalled();
+    });
+
+    it('stop() halts an in-flight loop after the current cycle completes', async () => {
+      let resolveFirstPoll!: (value: unknown) => void;
+      const firstPoll = new Promise((resolve) => {
+        resolveFirstPoll = resolve;
+      });
+      sqs.send.mockImplementationOnce(() => firstPoll);
+
+      consumer.start();
+      const stopPromise = consumer.stop();
+      resolveFirstPoll({});
+      await stopPromise;
+
+      expect(sqs.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('onApplicationShutdown stops a running consumer', async () => {
+      let resolveFirstPoll!: (value: unknown) => void;
+      const firstPoll = new Promise((resolve) => {
+        resolveFirstPoll = resolve;
+      });
+      sqs.send.mockImplementationOnce(() => firstPoll);
+
+      consumer.start();
+      const shutdownPromise = consumer.onApplicationShutdown();
+      resolveFirstPoll({});
+      await shutdownPromise;
+
+      expect(sqs.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('backs off with a delay after a polling cycle throws, then stops', async () => {
+      jest.useFakeTimers();
+      sqs.send
+        .mockRejectedValueOnce(new Error('boom'))
+        .mockImplementationOnce(async () => {
+          (consumer as unknown as { running: boolean }).running = false;
+          return {};
+        });
+
+      consumer.start();
+      await jest.advanceTimersByTimeAsync(1000);
+      await (consumer as unknown as { loopPromise: Promise<void> | null })
+        .loopPromise;
+
+      expect(sqs.send).toHaveBeenCalledTimes(2);
+    });
+  });
 });

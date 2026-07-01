@@ -106,4 +106,8 @@ describe('scoreToSeverity', () => {
   ])('maps score %i to %s', (score, expected) => {
     expect(scoreToSeverity(score)).toBe(expected);
   });
+
+  it('falls back to LOW when the score cannot be matched to a bucket', () => {
+    expect(scoreToSeverity(Number.NaN)).toBe(Severity.LOW);
+  });
 });

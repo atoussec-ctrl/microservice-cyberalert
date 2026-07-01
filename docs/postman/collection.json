@@ -1,0 +1,115 @@
+{
+  "info": {
+    "_postman_id": "threat-triage-collection",
+    "name": "Threat Triage & Alerts Engine",
+    "description": "REST API for the **Threat Triage & Alerts Engine** — event-driven NestJS worker with PostgreSQL + SNS/SQS.\n\n## Write path (async)\n\nPublish `threat-detected` events to SNS (LocalStack). The worker consumes from `threat-analysis-queue`, scores severity, persists idempotently, and emits `block-ip-command` for **CRITICAL** threats.\n\n```powershell\n# Windows\n.\\scripts\\publish-sample-threat.ps1\n\n# Linux/macOS\nbash scripts/publish-sample-threat.sh\n```\n\n## Swagger\n\nOpenAPI UI: `GET {{base_url}}/api/docs`\n\n## Severity buckets\n\n| Score | Bucket | Action |\n|-------|--------|--------|\n| ≥ 85 | CRITICAL | `block-ip-command` emitted |\n| ≥ 60 | HIGH | Persist only |\n| ≥ 35 | MEDIUM | Persist only |\n| < 35 | LOW | Persist only |",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health",
+            "description": "Terminus health check — pings PostgreSQL."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Threats",
+      "item": [
+        {
+          "name": "List All Threats",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const threats = pm.response.json();",
+                  "if (Array.isArray(threats) && threats[0]?.threatId) {",
+                  "  pm.environment.set('threat_id', threats[0].threatId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/threats?limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["threats"],
+              "query": [{ "key": "limit", "value": "50" }]
+            },
+            "description": "Returns consolidated threat intelligence ordered by detection time."
+          },
+          "response": []
+        },
+        {
+          "name": "List CRITICAL Threats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/threats?severity=CRITICAL&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["threats"],
+              "query": [
+                { "key": "severity", "value": "CRITICAL" },
+                { "key": "limit", "value": "50" }
+              ]
+            },
+            "description": "Filter by severity bucket. CRITICAL threats have `blockCommandIssued: true`."
+          },
+          "response": []
+        },
+        {
+          "name": "List by Source IP",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/threats?sourceIp=198.51.100.23&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["threats"],
+              "query": [
+                { "key": "sourceIp", "value": "198.51.100.23" },
+                { "key": "limit", "value": "50" }
+              ]
+            },
+            "description": "Filter threats originating from a specific IP."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Threat by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/threats/{{threat_id}}",
+            "description": "Fetch one threat by business `threatId` (UUID). Returns null body when not found."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Threat — Invalid UUID (400)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/threats/not-a-uuid",
+            "description": "Validation error — expect HTTP 400."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
